@@ -54,11 +54,10 @@ jobs:
             fi
           } > CHANGELOG.md
 
-          {
-            echo 'release_body<<EOF'
-            cat CHANGELOG.md
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          echo "release_body<<CHANGELOG_EOF" >> "$GITHUB_OUTPUT"
+          cat CHANGELOG.md >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_OUTPUT"
+          echo "CHANGELOG_EOF" >> "$GITHUB_OUTPUT"
 
       - name: Build and draft release
         uses: tauri-apps/tauri-action@v0
