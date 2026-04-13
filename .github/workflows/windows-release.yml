@@ -1,0 +1,74 @@
+name: Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Setup Rust (Stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Generate changelog
+        id: changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CURRENT_TAG="${GITHUB_REF_NAME}"
+          PREVIOUS_TAG="$(git tag --sort=-creatordate | grep '^v' | grep -Fxv "${CURRENT_TAG}" | head -n 1 || true)"
+
+          {
+            echo "## Changelog"
+            echo
+            if [[ -n "${PREVIOUS_TAG}" ]]; then
+              echo "### Changes since ${PREVIOUS_TAG}"
+              echo
+              git log "${PREVIOUS_TAG}..${CURRENT_TAG}" --pretty=format:'- %s (%h)'
+            else
+              echo "### Initial release"
+              echo
+              git log "${CURRENT_TAG}" --pretty=format:'- %s (%h)'
+            fi
+          } > CHANGELOG.md
+
+          {
+            echo 'release_body<<EOF'
+            cat CHANGELOG.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: MirrorZeabur ${{ github.ref_name }}
+          releaseBody: ${{ steps.changelog.outputs.release_body }}
+          releaseDraft: true
+          includeUpdaterJson: false
+          args: --target x86_64-pc-windows-msvc
