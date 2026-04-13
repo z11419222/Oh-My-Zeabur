@@ -6,7 +6,7 @@ import type { DeployMode } from '../../types/deployment';
 import { fetchGitHubRepoId, parseGitHubRepository } from '../../utils/github';
 import { generateSecret } from '../../utils/secrets';
 import { useI18n } from '../../hooks/useI18n';
-import { deployTemplateBatch, deployTemplateWithApiKey } from '../../lib/tauri';
+import { deployTemplateBatchWithStoredKeys, deployTemplateWithStoredKey } from '../../lib/tauri';
 import './DeployModal.css';
 
 const { Title, Text } = Typography;
@@ -23,6 +23,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
   const [deploying, setDeploying] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
   const [selectedKeyIds, setSelectedKeyIds] = useState<string[]>([])
+  const [deployStage, setDeployStage] = useState<'idle' | 'validating' | 'deploying' | 'completed'>('idle')
   const { t } = useI18n()
   
   const { currentConfig, updateConfig, generatedYaml, saveCurrentRecord, saveDraftRecord, zeabur, setZeaburDeployResult, switchZeaburKey } = useDeploymentStore();
@@ -33,6 +34,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
       setCurrentStep(0)
       setBatchMode(false)
       setSelectedKeyIds(zeabur.currentKeyId ? [zeabur.currentKeyId] : [])
+      setDeployStage('idle')
     }
   }, [visible, zeabur.currentKeyId])
 
@@ -98,7 +100,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
   };
 
   const doDeploy = async () => {
-    if (!currentKey?.apiKey.trim() && !batchMode) {
+    if (!currentKey && !batchMode) {
       Toast.error(t('apiKeyRequiredBeforeDeploy'))
       return
     }
@@ -110,13 +112,15 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
 
     try {
       setDeploying(true)
+      setDeployStage('validating')
       Toast.info(t('deployingToZeabur'))
       if (batchMode) {
         const entries = zeabur.keys
           .filter((key) => selectedKeyIds.includes(key.id))
-          .map((key) => ({ keyId: key.id, keyName: key.name, apiKey: key.apiKey }))
+          .map((key) => ({ keyId: key.id, keyName: key.name }))
 
-        const results = await deployTemplateBatch(entries, generatedYaml)
+        setDeployStage('deploying')
+        const results = await deployTemplateBatchWithStoredKeys(entries, generatedYaml)
         results.forEach((result) => {
           setZeaburDeployResult(result.keyId, {
             message: result.message,
@@ -139,7 +143,8 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
           Toast.error(t('apiKeyRequiredBeforeDeploy'))
           return
         }
-        const result = await deployTemplateWithApiKey(currentKey.apiKey, generatedYaml)
+        setDeployStage('deploying')
+        const result = await deployTemplateWithStoredKey(currentKey.id, generatedYaml)
         setZeaburDeployResult(currentKey.id, {
           message: result.message,
           stdout: result.stdout,
@@ -154,6 +159,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
           accountNames: [currentKey.name],
         })
       }
+      setDeployStage('completed')
       Toast.success(t('deploySuccess'))
       onDeploy();
     } catch (error) {
@@ -441,6 +447,14 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
           {t('readyToDeployDesc')}
         </Text>
         <Card className="devops-card" bodyStyle={{ width: '100%', padding: 16, marginBottom: 24 }}>
+          <Steps current={deployStage === 'idle' ? 0 : deployStage === 'validating' ? 1 : deployStage === 'deploying' ? 2 : 3} size="small">
+            <Steps.Step title={t('deployStageIdle')} />
+            <Steps.Step title={t('deployStageValidating')} />
+            <Steps.Step title={t('deployStageDeploying')} />
+            <Steps.Step title={t('deployStageCompleted')} />
+          </Steps>
+        </Card>
+        <Card className="devops-card" bodyStyle={{ width: '100%', padding: 16, marginBottom: 24 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text strong>{t('currentAccount')}</Text>
@@ -449,13 +463,13 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
             {!batchMode ? (
               <Select value={zeabur.currentKeyId} onChange={(value) => switchZeaburKey(value as string)} style={{ width: '100%' }}>
                 {zeabur.keys.map((key) => (
-                  <Select.Option key={key.id} value={key.id}>{key.name}</Select.Option>
+                  <Select.Option key={key.id} value={key.id} disabled={key.hasSecret === false}>{key.name}{key.hasSecret === false ? ' (missing secret)' : ''}</Select.Option>
                 ))}
               </Select>
             ) : (
               <Select value={selectedKeyIds} multiple onChange={(value) => setSelectedKeyIds(value as string[])} style={{ width: '100%' }}>
                 {zeabur.keys.map((key) => (
-                  <Select.Option key={key.id} value={key.id}>{key.name}</Select.Option>
+                  <Select.Option key={key.id} value={key.id} disabled={key.hasSecret === false}>{key.name}{key.hasSecret === false ? ' (missing secret)' : ''}</Select.Option>
                 ))}
               </Select>
             )}

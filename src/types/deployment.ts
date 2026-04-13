@@ -60,8 +60,8 @@ export interface DeploymentRecord {
 export interface ZeaburKeyInfo {
   id: string
   name: string
-  apiKey: string
   apiKeyConfiguredAt: string
+  hasSecret?: boolean
   lastValidationMessage?: string
   lastDeployMessage?: string
   lastDeployStdout?: string
@@ -71,6 +71,8 @@ export interface ZeaburKeyInfo {
 export interface ZeaburConfig {
   keys: ZeaburKeyInfo[]
   currentKeyId: string
+  restoreError?: string
+  restoreWarning?: string
 }
 
 export interface BatchDeployResult {

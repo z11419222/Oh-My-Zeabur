@@ -11,6 +11,11 @@ node_modules
 dist
 dist-ssr
 *.local
+src-tauri/target
+src-tauri/.cargo
+*.msi
+*-setup.exe
+zeabur-keys.json
 
 # Editor directories and files
 .vscode/*

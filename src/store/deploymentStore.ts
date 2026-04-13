@@ -8,7 +8,7 @@ import {
   type ZeaburKeyInfo,
 } from '../types/deployment'
 import { generateZeaburYaml } from '../utils/template'
-import { loadZeaburKeysFromDisk, saveZeaburKeysToDisk } from '../lib/tauri'
+import { deleteZeaburKeyFromSecureStore, loadZeaburKeysFromDisk, saveZeaburKeyToSecureStore, saveZeaburKeysToDisk } from '../lib/tauri'
 
 interface DeploymentState {
   currentConfig: DeploymentConfig
@@ -22,8 +22,8 @@ interface DeploymentState {
   saveCurrentRecord: (payload?: { accountIds?: string[]; accountNames?: string[] }) => void
   saveDraftRecord: () => void
   loadRecord: (id: string) => void
-  addZeaburKey: (payload: { name: string; apiKey: string }) => void
-  removeZeaburKey: (id: string) => void
+  addZeaburKey: (payload: { name: string; apiKey: string }) => Promise<void>
+  removeZeaburKey: (id: string) => Promise<void>
   switchZeaburKey: (id: string) => void
   updateZeaburKey: (id: string, payload: Partial<ZeaburKeyInfo>) => void
   setZeaburValidationResult: (keyId: string, message: string) => void
@@ -44,6 +44,8 @@ export const useDeploymentStore = create<DeploymentState>()(
       zeabur: {
         keys: [],
         currentKeyId: '',
+        restoreError: '',
+        restoreWarning: '',
       },
       setConfig: (config) => set({ currentConfig: config, generatedYaml: generateZeaburYaml(config) }),
       updateConfig: (updater) => {
@@ -96,14 +98,20 @@ export const useDeploymentStore = create<DeploymentState>()(
         if (!record) return
         set({ currentConfig: record.config, generatedYaml: record.generatedYaml })
       },
-      addZeaburKey: ({ name, apiKey }) => {
+      addZeaburKey: async ({ name, apiKey }) => {
         const current = get().zeabur
         const key: ZeaburKeyInfo = {
           id: `key_${Date.now()}`,
           name,
-          apiKey,
           apiKeyConfiguredAt: new Date().toISOString(),
         }
+
+        await saveZeaburKeyToSecureStore({
+          id: key.id,
+          name: key.name,
+          apiKey,
+          apiKeyConfiguredAt: key.apiKeyConfiguredAt,
+        })
 
         set({
           zeabur: {
@@ -112,20 +120,28 @@ export const useDeploymentStore = create<DeploymentState>()(
             currentKeyId: current.currentKeyId || key.id,
           },
         })
-        void saveZeaburKeysToDisk([key, ...current.keys])
+        void saveZeaburKeysToDisk({
+          keys: [key, ...current.keys],
+          currentKeyId: current.currentKeyId || key.id,
+        })
       },
-      removeZeaburKey: (id) => {
+      removeZeaburKey: async (id) => {
         const current = get().zeabur
         const nextKeys = current.keys.filter((item) => item.id !== id)
         const nextCurrentKeyId = current.currentKeyId === id ? (nextKeys[0]?.id ?? '') : current.currentKeyId
+        const deleteResult = await deleteZeaburKeyFromSecureStore(id).then(() => null).catch((error) => error)
         set({
           zeabur: {
             ...current,
             keys: nextKeys,
             currentKeyId: nextCurrentKeyId,
+            restoreWarning: deleteResult instanceof Error ? deleteResult.message : '',
           },
         })
-        void saveZeaburKeysToDisk(nextKeys)
+        void saveZeaburKeysToDisk({
+          keys: nextKeys,
+          currentKeyId: nextCurrentKeyId,
+        })
       },
       switchZeaburKey: (id) => {
         set({
@@ -133,6 +149,10 @@ export const useDeploymentStore = create<DeploymentState>()(
             ...get().zeabur,
             currentKeyId: id,
           },
+        })
+        void saveZeaburKeysToDisk({
+          keys: get().zeabur.keys,
+          currentKeyId: id,
         })
       },
       updateZeaburKey: (id, payload) => {
@@ -150,14 +170,17 @@ export const useDeploymentStore = create<DeploymentState>()(
             )),
           },
         })
-        void saveZeaburKeysToDisk(current.keys.map((item) => (
-          item.id === id
-            ? {
-                ...item,
-                ...payload,
-              }
-            : item
-        )))
+        void saveZeaburKeysToDisk({
+          keys: current.keys.map((item) => (
+            item.id === id
+              ? {
+                  ...item,
+                  ...payload,
+                }
+              : item
+          )),
+          currentKeyId: current.currentKeyId,
+        })
       },
       setZeaburValidationResult: (keyId, message) => {
         set({
@@ -190,16 +213,25 @@ export const useDeploymentStore = create<DeploymentState>()(
       },
       initializeZeaburKeys: async () => {
         try {
-          const keys = await loadZeaburKeysFromDisk()
+          const persisted = await loadZeaburKeysFromDisk()
           set({
             zeabur: {
               ...get().zeabur,
-              keys,
-              currentKeyId: get().zeabur.currentKeyId || keys[0]?.id || '',
+              keys: persisted.keys,
+              currentKeyId: persisted.currentKeyId || persisted.keys[0]?.id || '',
+              restoreError: '',
+              restoreWarning: persisted.keys.some((key) => key.hasSecret === false)
+                ? 'Some restored accounts are missing secure secrets on this machine.'
+                : '',
             },
           })
-        } catch {
-          // ignore load failure in MVP
+        } catch (error) {
+          set({
+            zeabur: {
+              ...get().zeabur,
+              restoreError: error instanceof Error ? error.message : 'Failed to restore Zeabur account data',
+            },
+          })
         }
       },
     }),

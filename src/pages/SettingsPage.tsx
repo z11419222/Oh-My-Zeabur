@@ -3,7 +3,7 @@ import { Card, Button, Typography, Form, Divider, Select, Toast } from '@douyinf
 import { IconSave, IconRefresh } from '@douyinfe/semi-icons';
 import { useDeploymentStore } from '../store/deploymentStore';
 import { useI18n } from '../hooks/useI18n';
-import { validateZeaburToken } from '../lib/tauri';
+import { validateStoredZeaburKey } from '../lib/tauri';
 
 const { Title, Text } = Typography;
 
@@ -34,13 +34,13 @@ export const SettingsPage: React.FC = () => {
   };
 
   const handleValidateApiKey = async () => {
-    if (!currentKey?.apiKey.trim()) {
+    if (!currentKey) {
       Toast.error(t('apiKeyValidationFailed'))
       return
     }
 
     try {
-      const result = await validateZeaburToken(currentKey.apiKey)
+      const result = await validateStoredZeaburKey(currentKey.id)
       if (result.ok) {
         setZeaburValidationResult(currentKey.id, result.message)
         Toast.success(t('apiKeyValidationPassed'))
@@ -54,15 +54,19 @@ export const SettingsPage: React.FC = () => {
     }
   }
 
-  const handleAddApiKey = () => {
+  const handleAddApiKey = async () => {
     if (!newAccountName.trim() || !newApiKey.trim()) {
       Toast.error(t('apiKeyValidationFailed'))
       return
     }
-    addZeaburKey({ name: newAccountName.trim(), apiKey: newApiKey.trim() })
-    setNewAccountName('')
-    setNewApiKey('')
-    Toast.success(t('apiKeySaved'))
+    try {
+      await addZeaburKey({ name: newAccountName.trim(), apiKey: newApiKey.trim() })
+      setNewAccountName('')
+      setNewApiKey('')
+      Toast.success(t('apiKeySaved'))
+    } catch (error) {
+      Toast.error(error instanceof Error ? error.message : t('apiKeyValidationFailed'))
+    }
   }
 
   return (
@@ -122,6 +126,16 @@ export const SettingsPage: React.FC = () => {
                 <Text type="tertiary">{t('noApiKeys')}</Text>
               </div>
             ) : null}
+            {zeabur.restoreError ? (
+              <div style={{ marginTop: 12 }}>
+                <Text type="danger">{zeabur.restoreError}</Text>
+              </div>
+            ) : null}
+            {zeabur.restoreWarning ? (
+              <div style={{ marginTop: 12 }}>
+                <Text type="warning">{zeabur.restoreWarning}</Text>
+              </div>
+            ) : null}
             <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
               {zeabur.keys.map((key) => (
                 <Card key={key.id} bodyStyle={{ padding: 12 }}>
@@ -131,6 +145,11 @@ export const SettingsPage: React.FC = () => {
                       <div>
                         <Text type="tertiary" size="small">{key.id}</Text>
                       </div>
+                      {key.hasSecret === false ? (
+                        <div>
+                          <Text type="danger" size="small">Missing secure secret</Text>
+                        </div>
+                      ) : null}
                       {key.lastValidationMessage ? (
                         <div>
                           <Text type="tertiary" size="small">{key.lastValidationMessage}</Text>
@@ -138,8 +157,8 @@ export const SettingsPage: React.FC = () => {
                       ) : null}
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <Button type={zeabur.currentKeyId === key.id ? 'primary' : 'tertiary'} size="small" onClick={() => switchZeaburKey(key.id)}>{t('switchAccount')}</Button>
-                      <Button type="danger" theme="borderless" size="small" onClick={() => removeZeaburKey(key.id)}>{t('removeAccount')}</Button>
+                      <Button type={zeabur.currentKeyId === key.id ? 'primary' : 'tertiary'} size="small" disabled={key.hasSecret === false} onClick={() => switchZeaburKey(key.id)}>{t('switchAccount')}</Button>
+                      <Button type="danger" theme="borderless" size="small" onClick={() => void removeZeaburKey(key.id)}>{t('removeAccount')}</Button>
                     </div>
                   </div>
                 </Card>
