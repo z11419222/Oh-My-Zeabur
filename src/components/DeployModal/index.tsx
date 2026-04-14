@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, Steps, Button, Space, Typography, Card, Form, Select, Switch, Toast } from '@douyinfe/semi-ui';
+import { Modal, Steps, Button, Space, Typography, Card, Form, Select, Switch, Toast, Tag } from '@douyinfe/semi-ui';
 import { IconPlay, IconRefresh } from '@douyinfe/semi-icons';
 import { useDeploymentStore } from '../../store/deploymentStore';
 import type { DeployMode } from '../../types/deployment';
@@ -22,11 +22,13 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
   const [fetchingRepoId, setFetchingRepoId] = useState(false)
   const [deploying, setDeploying] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
+  const [saveAsMaster, setSaveAsMaster] = useState(true)
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState<string>('')
   const [selectedKeyIds, setSelectedKeyIds] = useState<string[]>([])
   const [deployStage, setDeployStage] = useState<'idle' | 'validating' | 'deploying' | 'completed'>('idle')
   const { t } = useI18n()
   
-  const { currentConfig, updateConfig, generatedYaml, saveCurrentRecord, saveDraftRecord, zeabur, setZeaburDeployResult, switchZeaburKey } = useDeploymentStore();
+  const { currentConfig, updateConfig, generatedYaml, saveCurrentRecord, saveDraftRecord, zeabur, setZeaburDeployResult, switchZeaburKey, masterSnapshots } = useDeploymentStore();
   const currentKey = zeabur.keys.find((item) => item.id === zeabur.currentKeyId)
 
   useEffect(() => {
@@ -99,6 +101,36 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
     }));
   };
 
+  const validateClusterDeploy = () => {
+    if (currentConfig.deployMode === 'cluster-slave') {
+      if (
+        !currentConfig.services.externalSqlDsn.trim()
+        || !currentConfig.services.externalRedisConnString.trim()
+        || !currentConfig.secrets.sessionSecret.trim()
+        || !currentConfig.secrets.cryptoSecret.trim()
+      ) {
+        Toast.error(t('slaveReuseFieldsRequired'))
+        return false
+      }
+    }
+
+    if (currentConfig.deployMode === 'cluster-master' && saveAsMaster) {
+      const masterSqlDsn = currentConfig.services.useInternalPostgres
+        ? currentConfig.clusterReuseDraft.publicSqlDsn.trim()
+        : currentConfig.services.externalSqlDsn.trim()
+      const masterRedisConnString = currentConfig.services.useInternalRedis
+        ? currentConfig.clusterReuseDraft.publicRedisConnString.trim()
+        : currentConfig.services.externalRedisConnString.trim()
+
+      if (!masterSqlDsn || !masterRedisConnString || !currentConfig.secrets.sessionSecret.trim() || !currentConfig.secrets.cryptoSecret.trim()) {
+        Toast.error(t('masterReuseFieldsRequired'))
+        return false
+      }
+    }
+
+    return true
+  }
+
   const doDeploy = async () => {
     if (!currentKey && !batchMode) {
       Toast.error(t('apiKeyRequiredBeforeDeploy'))
@@ -107,6 +139,10 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
 
     if (batchMode && selectedKeyIds.length === 0) {
       Toast.error(t('apiKeyRequiredBeforeDeploy'))
+      return
+    }
+
+    if (!validateClusterDeploy()) {
       return
     }
 
@@ -137,6 +173,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
         saveCurrentRecord({
           accountIds: entries.map((item) => item.keyId),
           accountNames: entries.map((item) => item.keyName),
+          saveAsMaster,
         })
       } else {
         if (!currentKey) {
@@ -157,6 +194,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
         saveCurrentRecord({
           accountIds: [currentKey.id],
           accountNames: [currentKey.name],
+          saveAsMaster,
         })
       }
       setDeployStage('completed')
@@ -203,6 +241,29 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
     saveDraftRecord()
     Toast.success(t('saveDraftSuccess'))
   }
+
+  const handleSnapshotChange = (id: string) => {
+    setSelectedSnapshotId(id);
+    const snap = masterSnapshots.find(s => s.id === id);
+    if (snap) {
+      updateConfig(config => ({
+        ...config,
+        services: {
+          ...config.services,
+          externalSqlDsn: snap.sqlDsn,
+          externalRedisConnString: snap.redisConnString,
+          useInternalPostgres: false,
+          useInternalRedis: false,
+        },
+        secrets: {
+          ...config.secrets,
+          sessionSecret: snap.sessionSecret,
+          cryptoSecret: snap.cryptoSecret,
+        }
+      }));
+      Toast.success(t('autofillSuccess'));
+    }
+  };
 
   const renderSourceStep = () => (
     <div className="step-content">
@@ -337,8 +398,75 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
             </Card>
           )}
 
+          {currentConfig.deployMode === 'cluster-master' && (
+            <Card className="devops-card config-subcard" style={{ marginTop: 24, border: '1px solid var(--semi-color-primary-light-default)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <Text strong style={{ display: 'block' }}>{t('saveAsReusableMaster')}</Text>
+                  <Text type="tertiary" size="small" style={{ display: 'block', maxWidth: 400, marginTop: 4 }}>
+                    {t('saveAsReusableMasterDesc')}
+                  </Text>
+                </div>
+                <Switch checked={saveAsMaster} onChange={setSaveAsMaster} />
+              </div>
+              {saveAsMaster ? (
+                <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <Form.Input
+                    field="publicSqlDsn"
+                    label={t('masterPublicSqlDsn')}
+                    placeholder="postgresql://postgres:password@public-host:30760/new-api"
+                    initValue={currentConfig.clusterReuseDraft.publicSqlDsn}
+                    onChange={(value) => updateConfig((config) => ({
+                      ...config,
+                      clusterReuseDraft: {
+                        ...config.clusterReuseDraft,
+                        publicSqlDsn: value,
+                      },
+                    }))}
+                  />
+                  <Form.Input
+                    field="publicRedisConnString"
+                    label={t('masterPublicRedisConnString')}
+                    placeholder="redis://default:password@public-host:31250"
+                    initValue={currentConfig.clusterReuseDraft.publicRedisConnString}
+                    onChange={(value) => updateConfig((config) => ({
+                      ...config,
+                      clusterReuseDraft: {
+                        ...config.clusterReuseDraft,
+                        publicRedisConnString: value,
+                      },
+                    }))}
+                  />
+                  <Text type="tertiary" size="small" style={{ gridColumn: '1 / -1' }}>
+                    {t('masterReuseCaptureHint')}
+                  </Text>
+                </div>
+              ) : null}
+            </Card>
+          )}
+
           {currentConfig.deployMode === 'cluster-slave' && (
              <Card className="devops-card config-subcard" title={<Text strong>{t('masterNodeConnection')}</Text>}>
+               {masterSnapshots.length > 0 && (
+                 <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--semi-color-border)' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                     <Text strong>{t('useSavedMasterSnapshot')}</Text>
+                     <Tag color="green">{masterSnapshots.length}</Tag>
+                   </div>
+                   <Select 
+                     style={{ width: '100%' }} 
+                     placeholder={t('selectMasterSnapshot')}
+                     value={selectedSnapshotId}
+                     onChange={(v) => handleSnapshotChange(v as string)}
+                   >
+                     {masterSnapshots.map(snap => (
+                       <Select.Option key={snap.id} value={snap.id}>
+                         {snap.name} ({new Date(snap.createdAt).toLocaleString()})
+                       </Select.Option>
+                     ))}
+                   </Select>
+                 </div>
+               )}
                <Form.Input
                   field="externalSqlDsn"
                   label={t('masterSqlDsnRequired')}

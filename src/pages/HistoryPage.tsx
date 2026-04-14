@@ -1,6 +1,6 @@
 import React from 'react';
-import { Card, Typography, List, Tag, Steps, Avatar, Button, Space } from '@douyinfe/semi-ui';
-import { IconGithubLogo, IconTickCircle, IconRefresh } from '@douyinfe/semi-icons';
+import { Card, Typography, List, Tag, Steps, Avatar, Button, Space, Tooltip } from '@douyinfe/semi-ui';
+import { IconGithubLogo, IconTickCircle, IconRefresh, IconCopyAdd } from '@douyinfe/semi-icons';
 import { useDeploymentStore } from '../store/deploymentStore';
 import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../hooks/useI18n';
@@ -9,12 +9,39 @@ const { Title, Text } = Typography;
 
 export const HistoryPage: React.FC = () => {
   const navigate = useNavigate();
-  const { records, loadRecord } = useDeploymentStore();
+  const { records, loadRecord, updateConfig, masterSnapshots } = useDeploymentStore();
   const { t } = useI18n();
 
   const handleRestore = (id: string) => {
     loadRecord(id);
     navigate('/deploy');
+  };
+
+  const handleStartSlave = (recordId: string) => {
+    const snap = masterSnapshots.find(s => s.sourceRecordId === recordId);
+    if (snap) {
+      updateConfig(config => ({
+        ...config,
+        deployMode: 'cluster-slave',
+        cluster: {
+          ...config.cluster,
+          nodeType: 'slave',
+        },
+        services: {
+          ...config.services,
+          externalSqlDsn: snap.sqlDsn,
+          externalRedisConnString: snap.redisConnString,
+          useInternalPostgres: false,
+          useInternalRedis: false,
+        },
+        secrets: {
+          ...config.secrets,
+          sessionSecret: snap.sessionSecret,
+          cryptoSecret: snap.cryptoSecret,
+        }
+      }));
+      navigate('/deploy');
+    }
   };
 
   return (
@@ -56,6 +83,11 @@ export const HistoryPage: React.FC = () => {
                       </div>
                       <Text type="tertiary" size="small">•</Text>
                       <Text type="tertiary" size="small">{t('modeLabel')}: {item.deployMode}</Text>
+                      {item.isReusableMaster && (
+                        <Tag size="small" color="blue" shape="circle" style={{ marginLeft: 4 }}>
+                          {t('masterSnapshot')}
+                        </Tag>
+                      )}
                     </div>
                     {item.accountNames.length > 0 ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -73,6 +105,19 @@ export const HistoryPage: React.FC = () => {
                     <Steps.Step title={t('readyStep')} />
                   </Steps>
                   <Space>
+                     {item.isReusableMaster && (
+                        <Tooltip content={t('startSlaveDeploy')}>
+                          <Button 
+                            size="small" 
+                            theme="solid" 
+                            color="blue"
+                            icon={<IconCopyAdd />} 
+                            onClick={() => handleStartSlave(item.id)}
+                          >
+                            {t('startSlaveDeploy')}
+                          </Button>
+                        </Tooltip>
+                     )}
                      <Button size="small" icon={<IconRefresh />} onClick={() => handleRestore(item.id)}>{t('restoreConfig')}</Button>
                    </Space>
                  </div>

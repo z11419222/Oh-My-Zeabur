@@ -4,22 +4,54 @@ import {
   DEFAULT_DEPLOYMENT_CONFIG,
   type DeploymentConfig,
   type DeploymentRecord,
+  type ReusableMasterSnapshot,
   type ZeaburConfig,
   type ZeaburKeyInfo,
 } from '../types/deployment'
 import { generateZeaburYaml } from '../utils/template'
 import { deleteZeaburKeyFromSecureStore, loadZeaburKeysFromDisk, saveZeaburKeyToSecureStore, saveZeaburKeysToDisk } from '../lib/tauri'
 
+function buildReusableMasterSnapshot(config: DeploymentConfig, payload: { accountIds?: string[]; accountNames?: string[] } | undefined, sourceRecordId: string, createdAt: string): ReusableMasterSnapshot | null {
+  const sqlDsn = config.services.useInternalPostgres
+    ? config.clusterReuseDraft.publicSqlDsn.trim()
+    : config.services.externalSqlDsn.trim()
+
+  const redisConnString = config.services.useInternalRedis
+    ? config.clusterReuseDraft.publicRedisConnString.trim()
+    : config.services.externalRedisConnString.trim()
+
+  const sessionSecret = config.secrets.sessionSecret.trim()
+  const cryptoSecret = config.secrets.cryptoSecret.trim()
+
+  if (!sqlDsn || !redisConnString || !sessionSecret || !cryptoSecret) {
+    return null
+  }
+
+  return {
+    id: `snap_${Date.now()}`,
+    name: `${config.projectName} Master`,
+    createdAt,
+    sqlDsn,
+    redisConnString,
+    sessionSecret,
+    cryptoSecret,
+    sourceRecordId,
+    sourceAccountId: payload?.accountIds?.[0],
+    sourceAccountName: payload?.accountNames?.[0],
+  }
+}
+
 interface DeploymentState {
   currentConfig: DeploymentConfig
   generatedYaml: string
   records: DeploymentRecord[]
+  masterSnapshots: ReusableMasterSnapshot[]
   zeabur: ZeaburConfig
   setConfig: (config: DeploymentConfig) => void
   updateConfig: (updater: (config: DeploymentConfig) => DeploymentConfig) => void
   resetConfig: () => void
   regenerateYaml: () => void
-  saveCurrentRecord: (payload?: { accountIds?: string[]; accountNames?: string[] }) => void
+  saveCurrentRecord: (payload?: { accountIds?: string[]; accountNames?: string[]; saveAsMaster?: boolean }) => void
   saveDraftRecord: () => void
   loadRecord: (id: string) => void
   addZeaburKey: (payload: { name: string; apiKey: string }) => Promise<void>
@@ -31,7 +63,7 @@ interface DeploymentState {
   initializeZeaburKeys: () => Promise<void>
 }
 
-type PersistedDeploymentState = Pick<DeploymentState, 'currentConfig' | 'generatedYaml' | 'records'>
+type PersistedDeploymentState = Pick<DeploymentState, 'currentConfig' | 'generatedYaml' | 'records' | 'masterSnapshots'>
 
 const initialYaml = generateZeaburYaml(DEFAULT_DEPLOYMENT_CONFIG)
 
@@ -41,6 +73,7 @@ export const useDeploymentStore = create<DeploymentState>()(
       currentConfig: DEFAULT_DEPLOYMENT_CONFIG,
       generatedYaml: initialYaml,
       records: [],
+      masterSnapshots: [],
       zeabur: {
         keys: [],
         currentKeyId: '',
@@ -55,12 +88,15 @@ export const useDeploymentStore = create<DeploymentState>()(
       resetConfig: () => set({ currentConfig: DEFAULT_DEPLOYMENT_CONFIG, generatedYaml: generateZeaburYaml(DEFAULT_DEPLOYMENT_CONFIG) }),
       regenerateYaml: () => set((state) => ({ generatedYaml: generateZeaburYaml(state.currentConfig) })),
       saveCurrentRecord: (payload) => {
-        const { currentConfig, generatedYaml, records } = get()
+        const { currentConfig, generatedYaml, records, masterSnapshots } = get()
         const timestamp = new Date().toISOString()
         const id = `dep_${Date.now()}`
         const currentKey = get().zeabur.keys.find((item) => item.id === get().zeabur.currentKeyId)
         const accountIds = payload?.accountIds ?? (currentKey ? [currentKey.id] : [])
         const accountNames = payload?.accountNames ?? (currentKey ? [currentKey.name] : [])
+        const isMasterMode = currentConfig.deployMode === 'cluster-master'
+        const isReusableMaster = !!payload?.saveAsMaster && isMasterMode
+
         const record: DeploymentRecord = {
           id,
           name: currentConfig.projectName,
@@ -72,8 +108,21 @@ export const useDeploymentStore = create<DeploymentState>()(
           generatedYaml,
           accountIds,
           accountNames,
+          isReusableMaster,
         }
-        set({ records: [record, ...records] })
+        
+        if (isReusableMaster) {
+           const newSnapshot = buildReusableMasterSnapshot(currentConfig, payload, id, timestamp)
+
+           if (newSnapshot) {
+             set({ records: [record, ...records], masterSnapshots: [newSnapshot, ...masterSnapshots] })
+             return
+           }
+
+           set({ records: [record, ...records] })
+        } else {
+           set({ records: [record, ...records] })
+        }
       },
       saveDraftRecord: () => {
         const { currentConfig, generatedYaml, records } = get()
@@ -242,6 +291,7 @@ export const useDeploymentStore = create<DeploymentState>()(
         currentConfig: state.currentConfig,
         generatedYaml: state.generatedYaml,
         records: state.records,
+        masterSnapshots: state.masterSnapshots || [],
       }),
     },
   ),

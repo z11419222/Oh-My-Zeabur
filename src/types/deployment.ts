@@ -34,6 +34,11 @@ export interface RuntimeConfig {
   logSqlDsn: string
 }
 
+export interface ClusterReuseDraft {
+  publicSqlDsn: string
+  publicRedisConnString: string
+}
+
 export interface DeploymentConfig {
   projectName: string
   deployMode: DeployMode
@@ -42,6 +47,7 @@ export interface DeploymentConfig {
   cluster: ClusterConfig
   secrets: SecretConfig
   runtime: RuntimeConfig
+  clusterReuseDraft: ClusterReuseDraft
 }
 
 export interface DeploymentRecord {
@@ -55,6 +61,20 @@ export interface DeploymentRecord {
   generatedYaml: string
   accountIds: string[]
   accountNames: string[]
+  isReusableMaster?: boolean
+}
+
+export interface ReusableMasterSnapshot {
+  id: string
+  name: string
+  createdAt: string
+  sqlDsn: string
+  redisConnString: string
+  sessionSecret: string
+  cryptoSecret: string
+  sourceRecordId: string
+  sourceAccountId?: string
+  sourceAccountName?: string
 }
 
 export interface ZeaburKeyInfo {
@@ -115,5 +135,9 @@ export const DEFAULT_DEPLOYMENT_CONFIG: DeploymentConfig = {
     errorLogEnabled: true,
     frontendBaseUrl: '',
     logSqlDsn: '',
+  },
+  clusterReuseDraft: {
+    publicSqlDsn: '',
+    publicRedisConnString: '',
   },
 }
