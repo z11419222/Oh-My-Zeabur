@@ -21,6 +21,10 @@ export const SettingsPage: React.FC = () => {
   const { t } = useI18n();
   const [newAccountName, setNewAccountName] = React.useState('')
   const [newApiKey, setNewApiKey] = React.useState('')
+  const projectId = React.useMemo(() => {
+    const normalizedName = currentConfig.projectName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    return `prj_${normalizedName || 'mirror-zeabur'}`
+  }, [currentConfig.projectName])
 
   const currentKey = zeabur.keys.find((item) => item.id === zeabur.currentKeyId)
 
@@ -86,7 +90,7 @@ export const SettingsPage: React.FC = () => {
                onChange={(v) => updateConfig(c => ({ ...c, projectName: v }))} 
             />
             <Form.Slot label={t('projectId')}>
-              <Text code>prj_{Math.random().toString(36).substring(2, 10)}</Text>
+              <Text code>{projectId}</Text>
             </Form.Slot>
             <Form.Select field="region" label={t('primaryRegion')} initValue="aws-ap-east-1" style={{ width: '100%' }}>
               <Select.Option value="aws-ap-east-1">{t('regionTokyo')}</Select.Option>

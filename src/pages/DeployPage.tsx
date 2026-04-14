@@ -14,6 +14,7 @@ export const DeployPage: React.FC = () => {
   
   const hasRecords = records.length > 0;
   const latestRecord = hasRecords ? records[0] : null;
+  const createdAtLabel = latestRecord ? new Date(latestRecord.createdAt).toLocaleDateString() : '—'
 
   const drafts = hasRecords ? [
     {
@@ -114,7 +115,7 @@ export const DeployPage: React.FC = () => {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Text type="tertiary">{t('createdAt')}</Text>
-                    <Text>{new Date(latestRecord?.createdAt || Date.now()).toLocaleDateString()}</Text>
+                    <Text>{createdAtLabel}</Text>
                   </div>
                 </div>
               </div>
