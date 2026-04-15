@@ -1,0 +1,84 @@
+# yaml-language-server: $schema=https://schema.zeabur.app/template.json
+# Zeabur 部署模板 - New API (子节点/海外边缘节点)
+
+apiVersion: zeabur.com/v1
+kind: Template
+metadata:
+  name: New API (Slave Node)
+spec:
+  description: New API Edge/Slave Node cluster setup. This node does NOT include its own Database, but connects seamlessly with your Master Node's database logic to provide high availability edge proxy routing.
+  icon: https://raw.githubusercontent.com/QuantumNous/new-api/main/web/public/logo.png
+  tags:
+    - AI
+    - API
+    - Tool
+    - Edge
+  
+  variables:
+    - key: MASTER_SQL_DSN
+      type: STRING
+      name: 主节点数据库连接串
+      description: 填入主节点暴露出去的公网 PostgreSQL 连接地址，例如：postgresql://postgres:密码@公网IP:公网暴露端口/new-api
+    - key: MASTER_REDIS_URI
+      type: STRING
+      name: 主节点 Redis 连接串
+      description: 填入主节点暴露出去的公网 Redis 连接地址，例如：redis://:密码@公网IP:公网暴露端口
+    - key: SESSION_SECRET
+      type: PASSWORD
+      name: 会话密钥
+      description: 必须与主节点完全保持一致。如果在主节点乱按的，必须去主节点环境变量查出来复制到这里。
+    - key: CRYPTO_SECRET
+      type: PASSWORD
+      name: 加密密钥
+      description: 必须与主节点完全保持一致。
+    - key: TZ
+      type: STRING
+      name: 系统时区
+      description: 运行时的系统时区（必须填：Asia/Shanghai）。
+    - key: BATCH_UPDATE_ENABLED
+      type: STRING
+      name: 开启批量更新
+      description: 填 true。
+      
+  services:
+    # ---------------------------------------------
+    # New API 业务核心 (Slave Node)
+    # 彻底省去 DB 和 Redis，直接远距离映射到主区。
+    # ---------------------------------------------
+    - name: New API Slave
+      icon: https://raw.githubusercontent.com/QuantumNous/new-api/main/web/public/logo.png
+      template: GIT
+      spec:
+        source:
+          source: GITHUB
+          repo: 1202676616
+          branch: main
+        ports:
+          - id: http
+            port: 3000
+            type: HTTP
+        volumes:
+          - id: data
+            dir: /data
+          - id: logs
+            dir: /app/logs
+        env:
+          # 直接读取来自用户设置向导中输入的外网连接串
+          SQL_DSN:
+            default: ${MASTER_SQL_DSN}
+          REDIS_CONN_STRING:
+            default: ${MASTER_REDIS_URI}
+          SESSION_SECRET:
+            default: ${SESSION_SECRET}
+          CRYPTO_SECRET:
+            default: ${CRYPTO_SECRET}
+          # 核心重点：强制让这个无状态边缘端切换为 slave，这将在系统底层关闭定时结账、定时渠道测试那些耗时且容易同主系统打架的数据任务
+          NODE_TYPE:
+            default: slave
+          TZ:
+            default: ${TZ}
+          BATCH_UPDATE_ENABLED:
+            default: ${BATCH_UPDATE_ENABLED}
+          # 这里为了保持一致，降低主从网络同步带来的性能开销
+          SYNC_FREQUENCY:
+            default: "60"
