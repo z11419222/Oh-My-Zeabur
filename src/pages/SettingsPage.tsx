@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Button, Typography, Form, Divider, Select, Toast } from '@douyinfe/semi-ui';
+import { Card, Button, Typography, Form, Divider, Select, Toast, Modal } from '@douyinfe/semi-ui';
 import { IconSave, IconRefresh } from '@douyinfe/semi-icons';
 import { useDeploymentStore } from '../store/deploymentStore';
 import { useI18n } from '../hooks/useI18n';
@@ -12,6 +12,7 @@ export const SettingsPage: React.FC = () => {
     currentConfig,
     updateConfig,
     resetConfig,
+    clearRecords,
     zeabur,
     addZeaburKey,
     removeZeaburKey,
@@ -21,6 +22,7 @@ export const SettingsPage: React.FC = () => {
   const { t } = useI18n();
   const [newAccountName, setNewAccountName] = React.useState('')
   const [newApiKey, setNewApiKey] = React.useState('')
+  const projectId = React.useMemo(() => `prj_${Math.random().toString(36).substring(2, 10)}`, [])
 
   const currentKey = zeabur.keys.find((item) => item.id === zeabur.currentKeyId)
 
@@ -31,6 +33,19 @@ export const SettingsPage: React.FC = () => {
   const handleReset = () => {
     resetConfig();
     Toast.success(t('configReset'));
+  };
+
+  const handleDeleteProject = () => {
+    Modal.confirm({
+      title: t('deleteProject'),
+      content: t('deleteProjectDesc'),
+      okType: 'danger',
+      onOk: () => {
+        resetConfig();
+        clearRecords();
+        Toast.success(t('projectDeleted'));
+      },
+    });
   };
 
   const handleValidateApiKey = async () => {
@@ -86,7 +101,7 @@ export const SettingsPage: React.FC = () => {
                onChange={(v) => updateConfig(c => ({ ...c, projectName: v }))} 
             />
             <Form.Slot label={t('projectId')}>
-              <Text code>prj_{Math.random().toString(36).substring(2, 10)}</Text>
+              <Text code>{projectId}</Text>
             </Form.Slot>
             <Form.Select field="region" label={t('primaryRegion')} initValue="aws-ap-east-1" style={{ width: '100%' }}>
               <Select.Option value="aws-ap-east-1">{t('regionTokyo')}</Select.Option>
@@ -198,7 +213,7 @@ export const SettingsPage: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
             <Text>{t('deleteProjectDesc')}</Text>
             <div>
-              <Button type="danger" theme="solid">{t('deleteProject')}</Button>
+              <Button type="danger" theme="solid" onClick={handleDeleteProject}>{t('deleteProject')}</Button>
             </div>
           </div>
         </Card>

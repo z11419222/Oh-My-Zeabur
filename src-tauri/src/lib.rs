@@ -47,12 +47,56 @@ struct BatchDeployEntry {
     api_key: String,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchStoredDeployEntry {
+    key_id: String,
+    key_name: String,
+}
+
+/// Static argv for `zeabur auth login`. The API token is intentionally NOT here;
+/// it is passed via the `ZEABUR_TOKEN` environment variable so it never appears
+/// in the process argument list (which is observable by other processes).
+fn zeabur_login_args() -> [&'static str; 3] {
+    ["zeabur@latest", "auth", "login"]
+}
+
+/// Static argv prefix for `zeabur template deploy -f <file>`.
+fn zeabur_deploy_args() -> [&'static str; 4] {
+    ["zeabur@latest", "template", "deploy", "-f"]
+}
+
+/// Runs an `npx zeabur` command off the async runtime via `spawn_blocking`,
+/// injecting the API token through `ZEABUR_TOKEN` instead of argv.
+async fn run_zeabur_command(
+    args: Vec<String>,
+    extra_arg: Option<String>,
+    api_key: String,
+) -> Result<std::process::Output, String> {
+    let join = tauri::async_runtime::spawn_blocking(move || {
+        let mut command = Command::new("npx");
+        command.args(args.iter().map(String::as_str));
+        if let Some(path) = extra_arg.as_deref() {
+            command.arg(path);
+        }
+        command.env("ZEABUR_TOKEN", &api_key);
+        command.output()
+    });
+
+    match join.await {
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(error)) => Err(format!("Failed to execute Zeabur CLI: {error}")),
+        Err(error) => Err(format!("Zeabur CLI task failed: {error}")),
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ZeaburKeyInfoDto {
     id: String,
     name: String,
     api_key_configured_at: String,
+    #[serde(default)]
     has_secret: bool,
     last_validation_message: Option<String>,
     last_deploy_message: Option<String>,
@@ -114,18 +158,14 @@ fn get_app_environment_info() -> AppEnvironmentInfo {
 }
 
 #[tauri::command]
-fn validate_zeabur_token(api_key: String) -> ZeaburValidationResult {
-    let output = Command::new("npx")
-        .args([
-            "zeabur@latest",
-            "auth",
-            "login",
-            "--token",
-            api_key.as_str(),
-        ])
-        .output();
-
-    match output {
+async fn validate_zeabur_token(api_key: String) -> ZeaburValidationResult {
+    match run_zeabur_command(
+        zeabur_login_args().map(String::from).to_vec(),
+        None,
+        api_key,
+    )
+    .await
+    {
         Ok(result) if result.status.success() => ZeaburValidationResult {
             ok: true,
             message: "Zeabur API key is valid".to_string(),
@@ -136,15 +176,15 @@ fn validate_zeabur_token(api_key: String) -> ZeaburValidationResult {
         },
         Err(error) => ZeaburValidationResult {
             ok: false,
-            message: format!("Failed to execute Zeabur CLI: {error}"),
+            message: error,
         },
     }
 }
 
 #[tauri::command]
-fn validate_stored_zeabur_key(key_id: String) -> ZeaburValidationResult {
+async fn validate_stored_zeabur_key(key_id: String) -> ZeaburValidationResult {
     match load_api_key_from_secure_store(&key_id) {
-        Ok(api_key) => validate_zeabur_token(api_key),
+        Ok(api_key) => validate_zeabur_token(api_key).await,
         Err(error) => ZeaburValidationResult {
             ok: false,
             message: error,
@@ -153,7 +193,7 @@ fn validate_stored_zeabur_key(key_id: String) -> ZeaburValidationResult {
 }
 
 #[tauri::command]
-fn deploy_template_with_api_key(api_key: String, raw_yaml: String) -> ZeaburDeployResult {
+async fn deploy_template_with_api_key(api_key: String, raw_yaml: String) -> ZeaburDeployResult {
     let mut temp_file = match tempfile::Builder::new()
         .prefix("mirrorzeabur-")
         .suffix(".yaml")
@@ -181,17 +221,13 @@ fn deploy_template_with_api_key(api_key: String, raw_yaml: String) -> ZeaburDepl
 
     let temp_path = temp_file.path().to_string_lossy().to_string();
 
-    let login_output = Command::new("npx")
-        .args([
-            "zeabur@latest",
-            "auth",
-            "login",
-            "--token",
-            api_key.as_str(),
-        ])
-        .output();
-
-    let login_result = match login_output {
+    let login_result = match run_zeabur_command(
+        zeabur_login_args().map(String::from).to_vec(),
+        None,
+        api_key.clone(),
+    )
+    .await
+    {
         Ok(result) if result.status.success() => result,
         Ok(result) => {
             return ZeaburDeployResult {
@@ -204,22 +240,19 @@ fn deploy_template_with_api_key(api_key: String, raw_yaml: String) -> ZeaburDepl
         Err(error) => {
             return ZeaburDeployResult {
                 ok: false,
-                message: format!("Failed to execute Zeabur CLI login: {error}"),
+                message: error,
                 stdout: String::new(),
                 stderr: String::new(),
             }
         }
     };
 
-    let deploy_output = Command::new("npx")
-        .args([
-            "zeabur@latest",
-            "template",
-            "deploy",
-            "-f",
-            temp_path.as_str(),
-        ])
-        .output();
+    let deploy_output = run_zeabur_command(
+        zeabur_deploy_args().map(String::from).to_vec(),
+        Some(temp_path),
+        api_key,
+    )
+    .await;
 
     match deploy_output {
         Ok(result) if result.status.success() => ZeaburDeployResult {
@@ -240,7 +273,7 @@ fn deploy_template_with_api_key(api_key: String, raw_yaml: String) -> ZeaburDepl
         },
         Err(error) => ZeaburDeployResult {
             ok: false,
-            message: format!("Failed to execute Zeabur CLI deploy: {error}"),
+            message: error,
             stdout: String::new(),
             stderr: String::new(),
         },
@@ -248,9 +281,9 @@ fn deploy_template_with_api_key(api_key: String, raw_yaml: String) -> ZeaburDepl
 }
 
 #[tauri::command]
-fn deploy_template_with_stored_key(key_id: String, raw_yaml: String) -> ZeaburDeployResult {
+async fn deploy_template_with_stored_key(key_id: String, raw_yaml: String) -> ZeaburDeployResult {
     match load_api_key_from_secure_store(&key_id) {
-        Ok(api_key) => deploy_template_with_api_key(api_key, raw_yaml),
+        Ok(api_key) => deploy_template_with_api_key(api_key, raw_yaml).await,
         Err(error) => ZeaburDeployResult {
             ok: false,
             message: error,
@@ -261,45 +294,43 @@ fn deploy_template_with_stored_key(key_id: String, raw_yaml: String) -> ZeaburDe
 }
 
 #[tauri::command]
-fn deploy_template_batch_with_api_keys(
+async fn deploy_template_batch_with_api_keys(
     entries: Vec<BatchDeployEntry>,
     raw_yaml: String,
 ) -> Vec<BatchDeployResult> {
-    entries
-        .into_iter()
-        .map(|entry| {
-            let result = deploy_template_with_api_key(entry.api_key.clone(), raw_yaml.clone());
-            BatchDeployResult {
-                key_id: entry.key_id,
-                key_name: entry.key_name,
-                ok: result.ok,
-                message: result.message,
-                stdout: result.stdout,
-                stderr: result.stderr,
-            }
-        })
-        .collect()
+    let mut results = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let result = deploy_template_with_api_key(entry.api_key.clone(), raw_yaml.clone()).await;
+        results.push(BatchDeployResult {
+            key_id: entry.key_id,
+            key_name: entry.key_name,
+            ok: result.ok,
+            message: result.message,
+            stdout: result.stdout,
+            stderr: result.stderr,
+        });
+    }
+    results
 }
 
 #[tauri::command]
-fn deploy_template_batch_with_stored_keys(
-    entries: Vec<BatchDeployEntry>,
+async fn deploy_template_batch_with_stored_keys(
+    entries: Vec<BatchStoredDeployEntry>,
     raw_yaml: String,
 ) -> Vec<BatchDeployResult> {
-    entries
-        .into_iter()
-        .map(|entry| {
-            let result = deploy_template_with_stored_key(entry.key_id.clone(), raw_yaml.clone());
-            BatchDeployResult {
-                key_id: entry.key_id,
-                key_name: entry.key_name,
-                ok: result.ok,
-                message: result.message,
-                stdout: result.stdout,
-                stderr: result.stderr,
-            }
-        })
-        .collect()
+    let mut results = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let result = deploy_template_with_stored_key(entry.key_id.clone(), raw_yaml.clone()).await;
+        results.push(BatchDeployResult {
+            key_id: entry.key_id,
+            key_name: entry.key_name,
+            ok: result.ok,
+            message: result.message,
+            stdout: result.stdout,
+            stderr: result.stderr,
+        });
+    }
+    results
 }
 
 #[tauri::command]
@@ -405,4 +436,25 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{zeabur_deploy_args, zeabur_login_args};
+
+    const SAMPLE_TOKEN: &str = "zb_super_secret_token_value";
+
+    #[test]
+    fn login_args_never_contain_the_token() {
+        let args = zeabur_login_args();
+        assert!(args.iter().all(|arg| !arg.contains(SAMPLE_TOKEN)));
+        assert!(args.iter().all(|arg| *arg != "--token"));
+    }
+
+    #[test]
+    fn deploy_args_never_contain_the_token() {
+        let args = zeabur_deploy_args();
+        assert!(args.iter().all(|arg| !arg.contains(SAMPLE_TOKEN)));
+        assert!(args.iter().all(|arg| *arg != "--token"));
+    }
 }

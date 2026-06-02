@@ -9,11 +9,12 @@ const { Title, Text } = Typography;
 
 export const DeployPage: React.FC = () => {
   const [deployModalVisible, setDeployModalVisible] = useState(false);
-  const { currentConfig, records } = useDeploymentStore();
+  const { currentConfig, generatedYaml, records, loadRecord } = useDeploymentStore();
   const { t } = useI18n();
-  
+
   const hasRecords = records.length > 0;
   const latestRecord = hasRecords ? records[0] : null;
+  const latestDraft = records.find((record) => record.id.startsWith('draft_')) ?? null;
 
   const drafts = hasRecords ? [
     {
@@ -43,6 +44,24 @@ export const DeployPage: React.FC = () => {
 
   const openDeployModal = () => {
     setDeployModalVisible(true);
+  };
+
+  const handleCopyYaml = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedYaml);
+      Toast.success(t('templateCopied'));
+    } catch (error) {
+      Toast.error(error instanceof Error ? error.message : t('copyYaml'));
+    }
+  };
+
+  const handleRestoreDraft = () => {
+    if (!latestDraft) {
+      Toast.warning(t('noDraftToRestore'));
+      return;
+    }
+    loadRecord(latestDraft.id);
+    Toast.success(t('draftRestored'));
   };
 
   return (
@@ -123,8 +142,8 @@ export const DeployPage: React.FC = () => {
             <Card className="devops-card" title={<span style={{ fontWeight: 600 }}>{t('currentActions')}</span>}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
                 <Button block theme="light" type="tertiary" style={{ justifyContent: 'flex-start' }} onClick={openDeployModal}>{t('editCurrentDraft')}</Button>
-                <Button block theme="light" type="tertiary" style={{ justifyContent: 'flex-start' }}>{t('copyYamlFromTemplatePage')}</Button>
-                <Button block theme="light" type="tertiary" style={{ justifyContent: 'flex-start' }}>{t('restorePreviousDraft')}</Button>
+                <Button block theme="light" type="tertiary" style={{ justifyContent: 'flex-start' }} onClick={handleCopyYaml}>{t('copyYaml')}</Button>
+                <Button block theme="light" type="tertiary" style={{ justifyContent: 'flex-start' }} onClick={handleRestoreDraft} disabled={!latestDraft}>{t('restorePreviousDraft')}</Button>
               </div>
             </Card>
           </div>
