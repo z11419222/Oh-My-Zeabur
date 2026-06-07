@@ -1,5 +1,5 @@
 import { Layout, Nav, Button, Dropdown, Avatar, Tag, Space, Typography, Select } from '@douyinfe/semi-ui';
-import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { IconUpload, IconHistory, IconList, IconSetting, IconBell, IconHelpCircle } from '@douyinfe/semi-icons';
 import { DeployPage } from './pages/DeployPage';
 import { HistoryPage } from './pages/HistoryPage';
@@ -102,6 +102,7 @@ function App() {
                 <Route path="/history" element={<HistoryPage />} />
                 <Route path="/template" element={<TemplatePage />} />
                 <Route path="/settings" element={<SettingsPage />} />
+                <Route path="*" element={<Navigate to="/deploy" replace />} />
               </Routes>
             </ErrorBoundary>
           </div>

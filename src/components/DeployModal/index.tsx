@@ -630,7 +630,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
       title={t('deployNewApi')}
       visible={visible}
       onCancel={onCancel}
-      width={900}
+      width="min(920px, calc(100vw - 32px))"
       footer={
         <div className="modal-footer-custom">
           <Button type="tertiary" onClick={onCancel}>{t('cancel')}</Button>
@@ -658,7 +658,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({ visible, onCancel, onD
       closeOnEsc={false}
       maskClosable={false}
     >
-      <div className="deploy-modal-content" style={{ height: 650 }}>
+      <div className="deploy-modal-content">
         <div className="steps-container">
           <Steps current={currentStep} size="small">
             <Steps.Step title={t('sourceStep')} />
