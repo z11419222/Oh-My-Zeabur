@@ -4,13 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "tauri:dev": "tauri dev",
-    "build": "tsc -b && vite build",
-    "tauri:build": "tauri build",
-    "lint": "eslint .",
-    "test": "vitest run",
-    "preview": "vite preview"
+    "dev": "node_modules\\.bin\\vite",
+    "tauri:dev": "node_modules\\.bin\\tauri dev",
+    "build": "node_modules\\.bin\\tsc -b && node_modules\\.bin\\vite build",
+    "tauri:build": "node_modules\\.bin\\tauri build",
+    "lint": "node_modules\\.bin\\eslint .",
+    "test": "node_modules\\.bin\\vitest run",
+    "preview": "node_modules\\.bin\\vite preview"
   },
   "dependencies": {
     "@douyinfe/semi-icons": "^2.94.0",
