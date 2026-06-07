@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Button, Typography, Form, Divider, Select, Toast } from '@douyinfe/semi-ui';
+import { Card, Button, Typography, Form, Divider, Select, Toast, Modal } from '@douyinfe/semi-ui';
 import { IconSave, IconRefresh } from '@douyinfe/semi-icons';
 import { useDeploymentStore } from '../store/deploymentStore';
 import { useI18n } from '../hooks/useI18n';
@@ -12,6 +12,7 @@ export const SettingsPage: React.FC = () => {
     currentConfig,
     updateConfig,
     resetConfig,
+    clearRecords,
     zeabur,
     addZeaburKey,
     removeZeaburKey,
@@ -35,6 +36,19 @@ export const SettingsPage: React.FC = () => {
   const handleReset = () => {
     resetConfig();
     Toast.success(t('configReset'));
+  };
+
+  const handleDeleteProject = () => {
+    Modal.confirm({
+      title: t('deleteProject'),
+      content: t('deleteProjectDesc'),
+      okType: 'danger',
+      onOk: () => {
+        resetConfig();
+        clearRecords();
+        Toast.success(t('projectDeleted'));
+      },
+    });
   };
 
   const handleValidateApiKey = async () => {
@@ -202,7 +216,7 @@ export const SettingsPage: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
             <Text>{t('deleteProjectDesc')}</Text>
             <div>
-              <Button type="danger" theme="solid">{t('deleteProject')}</Button>
+              <Button type="danger" theme="solid" onClick={handleDeleteProject}>{t('deleteProject')}</Button>
             </div>
           </div>
         </Card>

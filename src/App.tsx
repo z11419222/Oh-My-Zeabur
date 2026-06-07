@@ -8,6 +8,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { useEffect } from 'react';
 import { useI18n } from './hooks/useI18n';
 import { useDeploymentStore } from './store/deploymentStore';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import './App.css';
 
 const { Header, Sider, Content } = Layout;
@@ -76,15 +77,15 @@ function App() {
               <Select.Option value="zh-CN">中文</Select.Option>
               <Select.Option value="en-US">English</Select.Option>
             </Select>
-            <Button theme="borderless" type="tertiary" icon={<IconHelpCircle />} />
-            <Button theme="borderless" type="tertiary" icon={<IconBell />} />
+            <Button theme="borderless" type="tertiary" icon={<IconHelpCircle />} disabled />
+            <Button theme="borderless" type="tertiary" icon={<IconBell />} disabled />
             <Dropdown
               render={
                 <Dropdown.Menu>
-                  <Dropdown.Item>{t('profile')}</Dropdown.Item>
-                  <Dropdown.Item>{t('billing')}</Dropdown.Item>
+                  <Dropdown.Item disabled>{t('profile')}</Dropdown.Item>
+                  <Dropdown.Item disabled>{t('billing')}</Dropdown.Item>
                   <Dropdown.Divider />
-                  <Dropdown.Item>{t('logout')}</Dropdown.Item>
+                  <Dropdown.Item disabled>{t('logout')}</Dropdown.Item>
                 </Dropdown.Menu>
               }
             >
@@ -94,13 +95,15 @@ function App() {
         </Header>
         <Content className="layout-content">
           <div className="page-container">
-            <Routes>
-              <Route path="/" element={<DeployPage />} />
-              <Route path="/deploy" element={<DeployPage />} />
-              <Route path="/history" element={<HistoryPage />} />
-              <Route path="/template" element={<TemplatePage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-            </Routes>
+            <ErrorBoundary onReset={() => navigate('/deploy')}>
+              <Routes>
+                <Route path="/" element={<DeployPage />} />
+                <Route path="/deploy" element={<DeployPage />} />
+                <Route path="/history" element={<HistoryPage />} />
+                <Route path="/template" element={<TemplatePage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+              </Routes>
+            </ErrorBoundary>
           </div>
         </Content>
       </Layout>

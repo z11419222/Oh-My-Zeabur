@@ -9,6 +9,7 @@ import {
   type ZeaburKeyInfo,
 } from '../types/deployment'
 import { generateZeaburYaml } from '../utils/template'
+import { deepMergeConfig } from '../utils/configMerge'
 import { deleteZeaburKeyFromSecureStore, loadZeaburKeysFromDisk, saveZeaburKeyToSecureStore, saveZeaburKeysToDisk } from '../lib/tauri'
 
 function buildReusableMasterSnapshot(config: DeploymentConfig, payload: { accountIds?: string[]; accountNames?: string[] } | undefined, sourceRecordId: string, createdAt: string): ReusableMasterSnapshot | null {
@@ -54,6 +55,7 @@ interface DeploymentState {
   saveCurrentRecord: (payload?: { accountIds?: string[]; accountNames?: string[]; saveAsMaster?: boolean }) => void
   saveDraftRecord: () => void
   loadRecord: (id: string) => void
+  clearRecords: () => void
   addZeaburKey: (payload: { name: string; apiKey: string }) => Promise<void>
   removeZeaburKey: (id: string) => Promise<void>
   switchZeaburKey: (id: string) => void
@@ -147,6 +149,7 @@ export const useDeploymentStore = create<DeploymentState>()(
         if (!record) return
         set({ currentConfig: record.config, generatedYaml: record.generatedYaml })
       },
+      clearRecords: () => set({ records: [] }),
       addZeaburKey: async ({ name, apiKey }) => {
         const current = get().zeabur
         const key: ZeaburKeyInfo = {
@@ -286,6 +289,7 @@ export const useDeploymentStore = create<DeploymentState>()(
     }),
     {
       name: 'mirrorzeabur-deployment-store',
+      version: 1,
       storage: createJSONStorage(() => localStorage),
       partialize: (state): PersistedDeploymentState => ({
         currentConfig: state.currentConfig,
@@ -293,6 +297,28 @@ export const useDeploymentStore = create<DeploymentState>()(
         records: state.records,
         masterSnapshots: state.masterSnapshots || [],
       }),
+      // One-time cleanup: discard any pre-v1 persisted shape so newly-added
+      // nested config keys are never missing (root cause of the blank screen).
+      migrate: (_persisted, version) => {
+        if (version < 1) return undefined
+        return _persisted as PersistedDeploymentState
+      },
+      // Defensive deep-merge fallback even within the same version: backfill any
+      // missing nested config key from defaults so property access can't throw.
+      merge: (persisted, current): DeploymentState => {
+        const saved = persisted as Partial<PersistedDeploymentState> | undefined
+        if (!saved) return current
+        const mergedConfig = deepMergeConfig(current.currentConfig, saved.currentConfig)
+        return {
+          ...current,
+          currentConfig: mergedConfig,
+          generatedYaml:
+            typeof saved.generatedYaml === 'string'
+              ? saved.generatedYaml
+              : generateZeaburYaml(mergedConfig),
+          records: Array.isArray(saved.records) ? saved.records : current.records,
+        }
+      },
     },
   ),
 )
